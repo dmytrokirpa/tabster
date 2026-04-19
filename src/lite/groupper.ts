@@ -14,7 +14,9 @@ import {
     findAll,
 } from "./focusable";
 
+/** Configuration used to create a lite groupper instance. */
 export interface GroupperOptions {
+    /** Tabbability mode controlling how focus enters/exits the group. */
     tabbability?: GroupperTabbability;
     /**
      * When true, the first child acts as a delegate: Tab focuses it,
@@ -22,20 +24,28 @@ export interface GroupperOptions {
      * Only meaningful with Limited or LimitedTrapFocus tabbability.
      */
     delegated?: boolean;
+    /** Optional delegate target used when `delegated` mode is enabled. */
     delegateFocus?: string | ((container: HTMLElement) => HTMLElement | null);
     /**
      * Keys the groupper should NOT intercept, allowing default browser/component handling.
      * E.g. `{ Tab: true }` to allow Tab to leave a LimitedTrapFocus group.
      */
     ignoreKeydown?: Record<string, boolean>;
+    /** Reserved for API parity with full Tabster. */
     domAPI?: DOMAPI;
 }
 
+/** Runtime API exposed by a lite groupper bound to a container element. */
 export interface GroupperInstance {
+    /** Container element that owns this groupper instance. */
     readonly element: HTMLElement;
+    /** Enters the group and optionally moves focus into it. */
     enter(options?: { focus?: boolean }): void;
+    /** Exits the group and optionally focuses the container root. */
     exit(options?: { focus?: boolean }): void;
+    /** Returns whether the group is currently in active (entered) state. */
     isActive(): boolean | undefined;
+    /** Disposes all listeners and restores any temporary tabindex changes. */
     dispose(): void;
 }
 
@@ -55,6 +65,7 @@ function _findDelegate(
     return findFirst({ container, includeProgrammaticallyFocusable: true });
 }
 
+/** Creates keyboard grouping behavior for a container using lite semantics. */
 export function createGroupper(
     element: HTMLElement,
     options?: GroupperOptions

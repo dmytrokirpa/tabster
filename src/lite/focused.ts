@@ -3,19 +3,27 @@
  * Licensed under the MIT License.
  */
 
+/** Metadata provided with focused-element change notifications. */
 export interface FocusedElementDetail {
+    /** Element that previously held focus, if any. */
     relatedTarget?: HTMLElement;
+    /** True when the focus change was triggered via `.focus()`. */
     isFocusedProgrammatically?: boolean;
 }
 
+/** Subscriber callback used by the focused-element tracker. */
 export type FocusedElementCallback = (
     element: HTMLElement | undefined,
     detail: FocusedElementDetail
 ) => void;
 
+/** Subscription-based focused-element tracker API. */
 export interface FocusedElementTracker {
+    /** Subscribes to focused-element change notifications. */
     subscribe(callback: FocusedElementCallback): void;
+    /** Removes a previously registered subscription callback. */
     unsubscribe(callback: FocusedElementCallback): void;
+    /** Disposes listeners and stops emitting focused-element notifications. */
     dispose(): void;
 }
 

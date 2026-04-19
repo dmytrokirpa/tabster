@@ -6,8 +6,11 @@
 const DEFAULT_ATTRIBUTE = "data-tabster-lite-observed";
 const DEFAULT_TIMEOUT = 5000;
 
+/** Handle for an asynchronous observed-element lookup request. */
 export interface ObservedElementRequest {
+    /** Cancels the request and resolves pending result with `null`. */
     cancel(): void;
+    /** Promise resolving to the observed element once found, otherwise `null`. */
     readonly result: Promise<HTMLElement | null>;
 }
 
@@ -79,6 +82,7 @@ function _disposeMO(): void {
 
 // ---- Public API ----
 
+/** Finds the first element currently marked with one of the provided observed names. */
 export function findObservedElement(
     name: string | string[],
     options?: { attributeName?: string }
@@ -92,6 +96,7 @@ export function findObservedElement(
     return document.querySelector(selector) as HTMLElement | null;
 }
 
+/** Adds observed-name markers to an element and returns a disposer to remove them. */
 export function observeElement(
     element: HTMLElement,
     name: string | string[],
@@ -105,6 +110,7 @@ export function observeElement(
     };
 }
 
+/** Waits until an observed element appears (or times out/cancels). */
 export function waitForObservedElement(
     name: string | string[],
     options?: { timeout?: number; attributeName?: string }
@@ -168,6 +174,7 @@ export function waitForObservedElement(
     };
 }
 
+/** Waits for an observed element and focuses it once available. */
 export function requestFocusObservedElement(
     name: string | string[],
     options?: {
@@ -194,6 +201,7 @@ export function requestFocusObservedElement(
     return req;
 }
 
+/** Disposes all pending observed-element requests and shared observers. */
 export function disposeObservedModule(): void {
     for (const req of _pending) {
         req.canceled = true;

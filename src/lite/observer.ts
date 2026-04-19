@@ -9,13 +9,14 @@ import { createGroupper } from "./groupper";
 import { createMover } from "./mover";
 import { createDeloser } from "./deloser";
 import { createModalizer } from "./modalizer";
-import { createRestorer } from "./restorer";
+import { createRestorer, rememberRestorerTargetInteraction } from "./restorer";
 import type { GroupperInstance } from "./groupper";
 import type { MoverInstance } from "./mover";
 import type { DeloserInstance } from "./deloser";
 import type { ModalizerInstance } from "./modalizer";
 import type { RestorerInstance } from "./restorer";
 
+/** Supported lite module keys handled by the attribute observer. */
 export type ModuleKey =
     | "groupper"
     | "mover"
@@ -23,12 +24,17 @@ export type ModuleKey =
     | "modalizer"
     | "restorer";
 
+/** Configuration for the lite attribute observer bootstrap. */
 export interface LiteObserverOptions {
+    /** Root subtree observed for `data-tabster` changes. Defaults to `document.body`. */
     root?: HTMLElement;
+    /** Subset of modules to wire automatically from parsed attributes. */
     modules?: ModuleKey[];
 }
 
+/** Controller returned by `createLiteObserver`. */
 export interface LiteObserver {
+    /** Disposes all wired instances and disconnects the MutationObserver. */
     dispose(): void;
     /** Returns the live instance for the given element and module, or null if none exists. */
     getInstance(element: HTMLElement, module: ModuleKey): AnyInstance | null;
@@ -95,10 +101,12 @@ function _createInstance(
     }
 }
 
+/** Creates a MutationObserver that wires lite modules from `data-tabster` attributes. */
 export function createLiteObserver(
     options?: LiteObserverOptions
 ): LiteObserver {
     const root = options?.root ?? document.body;
+    const ownerDocument = root.ownerDocument;
     const modules: ModuleKey[] = options?.modules ?? [
         "groupper",
         "mover",
@@ -171,6 +179,18 @@ export function createLiteObserver(
     function _unmountElement(el: HTMLElement): void {
         for (const mod of modules) {
             _unmountModule(el, mod);
+        }
+    }
+
+    function _mountFocusedPath(target: EventTarget | null): void {
+        let el = target instanceof HTMLElement ? target : null;
+
+        while (el && root.contains(el)) {
+            if (el.hasAttribute(TABSTER_ATTR)) {
+                _mountElement(el);
+            }
+
+            el = el.parentElement;
         }
     }
 
@@ -273,8 +293,48 @@ export function createLiteObserver(
         attributeFilter: [TABSTER_ATTR],
     });
 
+    const _onFocusIn = (event: FocusEvent) => {
+        _mountFocusedPath(event.target);
+    };
+
+    const _rememberRestorerTargetFromEvent = (
+        eventTarget: EventTarget | null
+    ) => {
+        let el = eventTarget instanceof HTMLElement ? eventTarget : null;
+        while (el && root.contains(el)) {
+            const parsed = _parseTabsterAttr(el);
+            const restorer = parsed["restorer"] as
+                | { type?: number; id?: string }
+                | undefined;
+
+            if (restorer?.type === 1) {
+                rememberRestorerTargetInteraction(el, restorer.id);
+                break;
+            }
+
+            el = el.parentElement;
+        }
+    };
+
+    const _onPointerDown = (event: PointerEvent) => {
+        _mountFocusedPath(event.target);
+        _rememberRestorerTargetFromEvent(event.target);
+    };
+
+    const _onMouseDown = (event: MouseEvent) => {
+        _mountFocusedPath(event.target);
+        _rememberRestorerTargetFromEvent(event.target);
+    };
+
+    ownerDocument.addEventListener("focusin", _onFocusIn);
+    ownerDocument.addEventListener("pointerdown", _onPointerDown, true);
+    ownerDocument.addEventListener("mousedown", _onMouseDown, true);
+
     function dispose(): void {
         _mo.disconnect();
+        ownerDocument.removeEventListener("focusin", _onFocusIn);
+        ownerDocument.removeEventListener("pointerdown", _onPointerDown, true);
+        ownerDocument.removeEventListener("mousedown", _onMouseDown, true);
         const els = Array.from(
             root.querySelectorAll(`[${TABSTER_ATTR}]`)
         ) as HTMLElement[];

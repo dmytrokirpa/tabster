@@ -10,10 +10,15 @@ export type { MoverDirection } from "../Types";
 import { MoverMemorizedElementEventName } from "../Events";
 import { findAll, findDefault } from "./focusable";
 
+/** Configuration used to create a lite mover instance. */
 export interface MoverOptions {
+    /** Navigation direction model used for arrow-key movement. */
     direction?: MoverDirection;
+    /** When true, movement wraps around at the ends. */
     cyclic?: boolean;
+    /** When true, remembers/restores the last focused item in the mover. */
     memorizeCurrent?: boolean;
+    /** When true, enables lookup of a default focus target on entry. */
     hasDefault?: boolean;
     /** When true, Tab/Shift+Tab navigate between items instead of leaving the group. */
     tabbable?: boolean;
@@ -22,20 +27,33 @@ export interface MoverOptions {
      * E.g. `{ Tab: true }` to let Tab leave even when tabbable is true.
      */
     ignoreKeydown?: Record<string, boolean>;
+    /** When true, movement skips items considered not sufficiently visible. */
     visibilityAware?: boolean;
+    /** Visibility threshold used when `visibilityAware` is enabled. */
     visibilityTolerance?: number;
+    /** Fixed grid column count override for grid directions. */
     gridColumns?: number;
+    /** Enables Home/End key navigation within the mover. */
     homeAndEnd?: boolean;
+    /** Enables PageUp/PageDown key navigation within the mover. */
     pageUpDown?: boolean;
+    /** Step size used by PageUp/PageDown movement. */
     pageSize?: number;
+    /** Enables native `focusgroup` behavior when available. */
     useFocusgroup?: boolean;
+    /** Reserved for API parity with full Tabster. */
     domAPI?: DOMAPI;
 }
 
+/** Runtime API exposed by a lite mover bound to a container element. */
 export interface MoverInstance {
+    /** Container element that owns this mover instance. */
     readonly element: HTMLElement;
+    /** Sets the current/active mover item used as navigation anchor. */
     setCurrentElement(el: HTMLElement | null): void;
+    /** Returns the current/active mover item, if any. */
     getCurrentElement(): HTMLElement | null;
+    /** Disposes listeners/observers and restores temporary state. */
     dispose(): void;
 }
 
@@ -440,6 +458,7 @@ function _linearNavigate(
     return currentIdx;
 }
 
+/** Creates arrow-key navigation behavior for a container using lite semantics. */
 export function createMover(
     element: HTMLElement,
     options?: MoverOptions
@@ -528,6 +547,10 @@ export function createMover(
     }
 
     function _syncTabbableItem(preferred?: HTMLElement | null): void {
+        if (!tabbable) {
+            return;
+        }
+
         // When the mover shares its element with a groupper (e.g. a
         // DataGrid row in composite mode), the groupper manages inner
         // tabindexes (all descendants stay at -1 unless explicitly
@@ -968,6 +991,157 @@ export function createMover(
     element.addEventListener(MoverMoveFocusEventName, _onMoverMoveFocus);
     element.addEventListener("focusin", _onFocusIn);
 
+    // ---- Dummy inputs ----
+    // The full Tabster Mover wraps its container with a pair of "dummy" focusable
+    // inputs (one before the first child, one after the last) to detect Tab/Shift+Tab
+    // entries from outside. Insertion is asynchronous in full Tabster (scheduled via
+    // setTimeout) so consumers that snapshot the DOM right after render do not see
+    // them. We mirror the same async behaviour here so DOM contracts (and any tests
+    // that depend on their presence after timer advancement) match.
+    let _dummyFirst: HTMLElement | null = null;
+    let _dummyLast: HTMLElement | null = null;
+    let _dummyTimer: ReturnType<typeof setTimeout> | undefined;
+    let _dummyFocusing = false;
+
+    function _createDummyInput(): HTMLElement {
+        const dummy = element.ownerDocument.createElement("i");
+        dummy.tabIndex = 0;
+        dummy.setAttribute("data-tabster-dummy", "");
+        dummy.setAttribute("aria-hidden", "true");
+        dummy.setAttribute("role", "none");
+        dummy.style.cssText =
+            "position: fixed; height: 1px; width: 1px; opacity: 0.001; z-index: -1; content-visibility: hidden; top: 0px; left: 0px;";
+        return dummy;
+    }
+
+    function _isInsideMover(node: Node | null): boolean {
+        return !!node && element.contains(node) && node !== element;
+    }
+
+    function _focusableInside(isLast: boolean): HTMLElement | null {
+        const items = findAll({
+            container: element,
+            includeProgrammaticallyFocusable: false,
+        }).filter((item) => item !== _dummyFirst && item !== _dummyLast);
+        if (items.length === 0) {
+            return null;
+        }
+        // Prefer the memorized current element when entering forward, when available.
+        if (
+            !isLast &&
+            memorizeCurrent &&
+            _current &&
+            items.includes(_current)
+        ) {
+            return _current;
+        }
+        return isLast ? items[items.length - 1] : items[0];
+    }
+
+    function _focusableOutside(isAfter: boolean): HTMLElement | null {
+        const root = element.ownerDocument.body as HTMLElement;
+        const all = findAll({
+            container: root,
+            includeProgrammaticallyFocusable: false,
+        }).filter(
+            (item) =>
+                item !== _dummyFirst &&
+                item !== _dummyLast &&
+                !element.contains(item)
+        );
+        if (all.length === 0) {
+            return null;
+        }
+        if (isAfter) {
+            return (
+                all.find(
+                    (el) =>
+                        !!(
+                            element.compareDocumentPosition(el) &
+                            Node.DOCUMENT_POSITION_FOLLOWING
+                        )
+                ) ?? null
+            );
+        }
+        let prev: HTMLElement | null = null;
+        for (const el of all) {
+            if (
+                element.compareDocumentPosition(el) &
+                Node.DOCUMENT_POSITION_PRECEDING
+            ) {
+                prev = el;
+            } else {
+                break;
+            }
+        }
+        return prev;
+    }
+
+    function _onDummyFocus(this: HTMLElement, e: FocusEvent): void {
+        if (_dummyFocusing) {
+            return;
+        }
+        const isFirst = this === _dummyFirst;
+        const relatedTarget = e.relatedTarget as HTMLElement | null;
+        const fromInside = _isInsideMover(relatedTarget);
+
+        let toFocus: HTMLElement | null = null;
+        if (fromInside) {
+            // Tabbing OUT of the mover. The first dummy means Shift+Tab past the
+            // start; the last dummy means Tab past the end.
+            toFocus = _focusableOutside(!isFirst);
+        } else {
+            // Tabbing INTO the mover from outside. First dummy = forward Tab,
+            // land on first focusable; last dummy = backward Shift+Tab, land on
+            // last focusable.
+            toFocus = _focusableInside(!isFirst);
+        }
+
+        if (toFocus) {
+            _dummyFocusing = true;
+            try {
+                toFocus.focus();
+            } finally {
+                _dummyFocusing = false;
+            }
+        }
+    }
+
+    function _insertDummies(): void {
+        _dummyTimer = undefined;
+        if (_dummyFirst || _dummyLast) {
+            return;
+        }
+        if (!element.isConnected) {
+            return;
+        }
+        _dummyFirst = _createDummyInput();
+        _dummyLast = _createDummyInput();
+        _dummyFirst.addEventListener("focus", _onDummyFocus);
+        _dummyLast.addEventListener("focus", _onDummyFocus);
+        element.insertBefore(_dummyFirst, element.firstChild);
+        element.appendChild(_dummyLast);
+    }
+
+    function _removeDummies(): void {
+        if (_dummyTimer !== undefined) {
+            clearTimeout(_dummyTimer);
+            _dummyTimer = undefined;
+        }
+        if (_dummyFirst) {
+            _dummyFirst.removeEventListener("focus", _onDummyFocus);
+            _dummyFirst.remove();
+            _dummyFirst = null;
+        }
+        if (_dummyLast) {
+            _dummyLast.removeEventListener("focus", _onDummyFocus);
+            _dummyLast.remove();
+            _dummyLast = null;
+        }
+    }
+
+    _dummyTimer = setTimeout(_insertDummies, 0);
+
     function setCurrentElement(el: HTMLElement | null): void {
         _current = el;
         _currentGridPos = null; // caller sets element directly; grid pos is re-derived on next focusin
@@ -982,6 +1156,8 @@ export function createMover(
         element.removeEventListener("keydown", _onKeyDown);
         element.removeEventListener(MoverMoveFocusEventName, _onMoverMoveFocus);
         element.removeEventListener("focusin", _onFocusIn);
+
+        _removeDummies();
 
         _restoreTabIndexes();
 

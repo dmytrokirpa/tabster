@@ -11,13 +11,20 @@ import {
 } from "../Utils";
 import type { DOMAPI } from "../Types";
 
+/** Shared selector used by lite focus-search helpers to discover focusable candidates. */
 export { FOCUSABLE_SELECTOR };
 
+/** Options used by lite focus discovery helpers. */
 export interface FindOptions {
+    /** Root container where traversal starts. Defaults to `document.body`. */
     container?: HTMLElement | ShadowRoot;
+    /** Optional predicate used to keep/discard matching elements. */
     filter?: (el: HTMLElement) => boolean;
+    /** When true, allows elements inside inert/aria-hidden subtrees. */
     includeInert?: boolean;
+    /** When true, includes elements with `tabIndex=-1` in results. */
     includeProgrammaticallyFocusable?: boolean;
+    /** Reserved for API parity with full Tabster. */
     acceptShadowRoots?: boolean;
     /**
      * Walk in document-reverse order. Mirrors full Tabster's `isBackward`
@@ -36,9 +43,11 @@ export interface FindOptions {
      * still included in the result).
      */
     onElement?: (el: HTMLElement) => boolean;
+    /** Reserved for API parity with full Tabster. */
     domAPI?: DOMAPI;
 }
 
+/** Returns whether the element is rendered with non-zero layout and not display:none. */
 export function isVisible(element: HTMLElement): boolean {
     if (!element.ownerDocument || element.nodeType !== Node.ELEMENT_NODE) {
         return false;
@@ -56,6 +65,7 @@ export function isVisible(element: HTMLElement): boolean {
     return true;
 }
 
+/** Returns whether the element can currently receive focus under lite rules. */
 export function isFocusable(
     element: HTMLElement,
     includeProgrammaticallyFocusable = false
@@ -68,6 +78,7 @@ export function isFocusable(
     );
 }
 
+/** Returns whether the element is accessible (not inert/aria-hidden through its ancestor chain). */
 export function isAccessible(element: HTMLElement): boolean {
     const d = element.ownerDocument?.defaultView;
     if (!d) {
@@ -123,6 +134,7 @@ function _accept(
     return true;
 }
 
+/** Returns all focusable descendants in walk order (or reverse order when requested). */
 export function findAll(options?: FindOptions): HTMLElement[] {
     const container = _getContainer(options);
     const includeInert = options?.includeInert ?? false;
@@ -182,6 +194,7 @@ export function findAll(options?: FindOptions): HTMLElement[] {
     return result;
 }
 
+/** Returns the first focusable descendant matching the provided options. */
 export function findFirst(options?: FindOptions): HTMLElement | null {
     // Honour isBackward / currentElement by routing through findAll. The cost
     // of materialising the whole list is small for typical containers and
@@ -214,11 +227,13 @@ export function findFirst(options?: FindOptions): HTMLElement | null {
     return (walker.nextNode() as HTMLElement | null) ?? null;
 }
 
+/** Returns the last focusable descendant matching the provided options. */
 export function findLast(options?: FindOptions): HTMLElement | null {
     const all = findAll(options);
     return all[all.length - 1] ?? null;
 }
 
+/** Returns the focusable element that follows `from` within the same query scope. */
 export function findNext(
     from: HTMLElement,
     options?: FindOptions
@@ -231,6 +246,7 @@ export function findNext(
     return all[idx + 1] ?? null;
 }
 
+/** Returns the focusable element that precedes `from` within the same query scope. */
 export function findPrev(
     from: HTMLElement,
     options?: FindOptions
@@ -243,6 +259,7 @@ export function findPrev(
     return all[idx - 1] ?? null;
 }
 
+/** Returns the container's preferred default focus target, if present and focusable. */
 export function findDefault(options?: FindOptions): HTMLElement | null {
     const container = _getContainer(options);
 

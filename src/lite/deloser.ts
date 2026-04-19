@@ -7,23 +7,34 @@ import type { DOMAPI } from "../Types";
 import { DeloserFocusRestoredEventName } from "../Events";
 import { findFirst } from "./focusable";
 
+/** Configuration used to create a lite deloser instance. */
 export interface DeloserOptions {
+    /** Maximum number of recently focused descendants kept in restore history. */
     historyDepth?: number;
+    /** Callback invoked when focus is lost and no history candidate is available. */
     onLoseFocus?: (
         lost: HTMLElement,
         container: HTMLElement
     ) => HTMLElement | false | null;
+    /** Fallback target used when history/callback do not provide a restore target. */
     fallbackElement?: HTMLElement | (() => HTMLElement | null);
+    /** Reserved for API parity with full Tabster. */
     domAPI?: DOMAPI;
 }
 
+/** Runtime API exposed by a lite deloser bound to a container element. */
 export interface DeloserInstance {
+    /** Container element that owns this deloser instance. */
     readonly element: HTMLElement;
+    /** Manually pushes an element into the focus restore history. */
     addToHistory(el: HTMLElement): void;
+    /** Clears all recorded focus history for this container. */
     clearHistory(): void;
+    /** Disposes event listeners/observers and releases history state. */
     dispose(): void;
 }
 
+/** Creates focus-restoration behavior for a container when focused descendants are removed. */
 export function createDeloser(
     element: HTMLElement,
     options?: DeloserOptions

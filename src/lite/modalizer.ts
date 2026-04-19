@@ -30,14 +30,23 @@ function _hasTabsterKey(el: Element, key: string): boolean {
     return value.indexOf(`"${key}":`) !== -1;
 }
 
+/** Configuration used to create a lite modalizer instance. */
 export interface ModalizerOptions {
+    /** Optional modalizer id used for correlation with other modules/components. */
     id?: string;
+    /** When true and the element is a dialog, uses native dialog modal behavior. */
     useDialog?: boolean;
+    /** Optional initial target (selector/callback) to focus on activation. */
     initialFocus?: string | ((container: HTMLElement) => HTMLElement | null);
+    /** Optional target used when restoring focus on deactivation/dispose. */
     restoreFocusTo?: HTMLElement | (() => HTMLElement | null);
+    /** Escape-key callback fired before optional auto-close handling. */
     onEscape?: (event: KeyboardEvent) => void;
+    /** When true, Escape closes the modalizer unless prevented by callback logic. */
     closeOnEscape?: boolean;
+    /** Reserved for API parity with full Tabster. */
     allowNested?: boolean;
+    /** When true, outside content remains accessible while modalizer is active. */
     isOthersAccessible?: boolean;
     /**
      * When true, a keydown Tab-trap listener is added so focus cannot leave via
@@ -46,8 +55,8 @@ export interface ModalizerOptions {
     isTrapped?: boolean;
     /**
      * When true, this modalizer container is always accessible even when other
-     * modals are active. Lite honours this by virtue of skipping all elements
-     * that have data-tabster-lite-modalizer, so no extra runtime logic is needed.
+     * modals are active. In lite this is handled by skipping sibling subtrees
+     * whose data-tabster JSON contains a modalizer key during inert application.
      */
     isAlwaysAccessible?: boolean;
     /**
@@ -55,14 +64,21 @@ export interface ModalizerOptions {
      * Return true to keep the element accessible (e.g. elements with a "never-hidden" attribute).
      */
     accessibleCheck?: (element: HTMLElement) => boolean;
+    /** When true, activation does not force initial focus movement. */
     isNoFocusFirst?: boolean;
+    /** When true, skips preferred-default focus lookup during activation. */
     isNoFocusDefault?: boolean;
+    /** Reserved for API parity with full Tabster. */
     domAPI?: DOMAPI;
 }
 
+/** Runtime API exposed by a lite modalizer bound to a container element. */
 export interface ModalizerInstance {
+    /** Container element that owns this modalizer instance. */
     readonly element: HTMLElement;
+    /** Optional modalizer id configured on creation. */
     readonly id: string | undefined;
+    /** Whether the modalizer is currently active. */
     readonly isActive: boolean;
     /**
      * Activate the modal trap.
@@ -70,7 +86,9 @@ export interface ModalizerInstance {
      *   If omitted, document.activeElement is captured at the time of the call.
      */
     activate(restoreTarget?: HTMLElement | null): void;
+    /** Deactivates the modalizer and performs optional focus restoration. */
     deactivate(): void;
+    /** Disposes listeners and deactivates if currently active. */
     dispose(): void;
 }
 
@@ -100,6 +118,7 @@ function _ensureGlobalFocusTracker(doc: Document): void {
     _globalFocusTrackerInitialized = true;
 }
 
+/** Creates modal focus-management behavior for a container using lite semantics. */
 export function createModalizer(
     element: HTMLElement,
     options?: ModalizerOptions
@@ -127,15 +146,51 @@ export function createModalizer(
     // Tab-trap listener (for isTrapped mode)
     let _tabTrapListener: ((e: KeyboardEvent) => void) | null = null;
 
-    // Tab-out sentinel (for non-trap modalizers, isOthersAccessible=true).
+    // Tab-out dummy (for non-trap modalizers, isOthersAccessible=true).
     // A focusable sibling placed immediately AFTER the modalizer element so that
     // pressing Tab from the last inner focusable lands on a real DOM element
     // (instead of going to <body>). This guarantees the original element's
     // focusout fires with a non-null relatedTarget, allowing consumers
     // (e.g. PopoverSurface) to detect Tab-out via blur handlers and close.
-    // The sentinel itself, on focus, redirects to the next document focusable
+    // The dummy itself, on focus, redirects to the next document focusable
     // outside the modalizer (or blurs to body if none exists).
     let _tabOutSentinel: HTMLElement | null = null;
+    let _moverDummies: HTMLElement[] = [];
+
+    function _createDummy(doc: Document): HTMLElement {
+        const dummy = doc.createElement("i");
+        dummy.tabIndex = 0;
+        dummy.setAttribute("data-tabster-dummy", "");
+        dummy.setAttribute("aria-hidden", "true");
+        dummy.setAttribute("role", "none");
+        dummy.style.cssText =
+            "position: fixed; height: 1px; width: 1px; opacity: 0.001; z-index: -1; content-visibility: hidden; top: 0px; left: 0px;";
+        return dummy;
+    }
+
+    function _ensureMoverDummies(): void {
+        const moverContainers = Array.from(
+            element.ownerDocument.body.querySelectorAll<HTMLElement>(
+                _tabsterAttrSelector("mover")
+            )
+        );
+
+        for (const container of moverContainers) {
+            const first = _createDummy(element.ownerDocument);
+            const last = _createDummy(element.ownerDocument);
+
+            container.insertBefore(first, container.firstChild);
+            container.appendChild(last);
+            _moverDummies.push(first, last);
+        }
+    }
+
+    function _removeMoverDummies(): void {
+        for (const dummy of _moverDummies) {
+            dummy.remove();
+        }
+        _moverDummies = [];
+    }
     function _onTabOutSentinelFocus(): void {
         const sentinel = _tabOutSentinel;
         if (!sentinel) {
@@ -174,12 +229,13 @@ export function createModalizer(
         if (!parent) {
             return;
         }
-        const sentinel = element.ownerDocument.createElement("div");
+        const sentinel = element.ownerDocument.createElement("i");
         sentinel.tabIndex = 0;
-        sentinel.setAttribute("data-tabster-lite-sentinel", "after");
+        sentinel.setAttribute("data-tabster-dummy", "");
         sentinel.setAttribute("aria-hidden", "true");
+        sentinel.setAttribute("role", "none");
         sentinel.style.cssText =
-            "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none;";
+            "position:fixed;height:1px;width:1px;opacity:0.001;z-index:-1;content-visibility:hidden;top:0;left:0;";
         sentinel.addEventListener("focus", _onTabOutSentinelFocus);
         parent.insertBefore(sentinel, element.nextSibling);
         _tabOutSentinel = sentinel;
@@ -356,6 +412,7 @@ export function createModalizer(
                     : (document.activeElement as HTMLElement | null);
         }
         _active = true;
+        _ensureMoverDummies();
 
         if (useDialog && element instanceof HTMLDialogElement) {
             (element as HTMLDialogElement).showModal();
@@ -456,6 +513,7 @@ export function createModalizer(
             }
 
             _removeTabOutSentinel();
+            _removeMoverDummies();
         }
 
         element.dispatchEvent(
