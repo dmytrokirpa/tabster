@@ -53,7 +53,7 @@ export const RestorerBasicExample: StoryFn = () => {
             "#unmount"
         ) as HTMLButtonElement;
         initialFocus?.focus();
-        document.getElementById("unmount")?.addEventListener("click", () => {
+        initialFocus?.addEventListener("click", () => {
             source.remove();
         });
     });
@@ -109,7 +109,7 @@ export const UseTargetHistory: StoryFn = () => {
             "#unmount"
         ) as HTMLButtonElement;
         initialFocus?.focus();
-        document.getElementById("unmount")?.addEventListener("click", () => {
+        initialFocus?.addEventListener("click", () => {
             source.remove();
         });
         target.remove();

@@ -52,7 +52,7 @@ export function createDeloser(
     element: HTMLElement,
     options?: DeloserOptions
 ): DeloserInstance {
-    const historyDepth = options?.historyDepth ?? 10;
+    const historyDepth = Math.max(1, options?.historyDepth ?? 10);
 
     // Fixed-size ring buffer: no splice/shift
     const _history: Array<WeakRef<HTMLElement>> = new Array(historyDepth).fill(
@@ -103,11 +103,21 @@ export function createDeloser(
             return;
         }
 
+        function _dispatchRestored(): void {
+            element.dispatchEvent(
+                new CustomEvent(DeloserFocusRestoredEventName, {
+                    bubbles: true,
+                    composed: true,
+                })
+            );
+        }
+
         // Fallback chain: onLoseFocus callback
         if (options?.onLoseFocus) {
             const result = options.onLoseFocus(lostEl, element);
             if (result !== false && result !== null) {
                 result.focus();
+                _dispatchRestored();
                 return;
             }
             if (result === false) {
@@ -121,6 +131,7 @@ export function createDeloser(
             const target = typeof fe === "function" ? fe() : fe;
             if (target) {
                 target.focus();
+                _dispatchRestored();
                 return;
             }
         }
@@ -129,12 +140,14 @@ export function createDeloser(
         const first = findFirst({ container: element });
         if (first) {
             first.focus();
+            _dispatchRestored();
             return;
         }
 
         // If nothing focusable, try the container itself
         if (element.tabIndex >= 0) {
             element.focus();
+            _dispatchRestored();
         }
     }
 

@@ -827,7 +827,10 @@ export function createMover(
 
         // Tab navigation within the group
         if (isTab) {
-            const items = findAll({ container: element, includeProgrammaticallyFocusable: true });
+            const items = findAll({
+                container: element,
+                includeProgrammaticallyFocusable: true,
+            });
             const currentIdx = items.indexOf(target);
             if (currentIdx === -1) {
                 return;
@@ -1021,18 +1024,13 @@ export function createMover(
     function _focusableInside(isLast: boolean): HTMLElement | null {
         const items = findAll({
             container: element,
-            includeProgrammaticallyFocusable: false,
+            includeProgrammaticallyFocusable: true,
         }).filter((item) => item !== _dummyFirst && item !== _dummyLast);
         if (items.length === 0) {
             return null;
         }
-        // Prefer the memorized current element when entering forward, when available.
-        if (
-            !isLast &&
-            memorizeCurrent &&
-            _current &&
-            items.includes(_current)
-        ) {
+        // Prefer the memorized current element when entering from outside.
+        if (memorizeCurrent && _current && items.includes(_current)) {
             return _current;
         }
         return isLast ? items[items.length - 1] : items[0];

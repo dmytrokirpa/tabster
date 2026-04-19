@@ -95,27 +95,32 @@ export interface ModalizerInstance {
 // Track elements whose `inert` was set by this instance (not pre-existing)
 type InertRecord = WeakMap<HTMLElement, boolean>; // value: was inert before we touched it
 
-let _lastFocusRelatedTarget: HTMLElement | null = null;
-let _globalFocusTrackerInitialized = false;
+// Per-document focus tracker state — scoped so multiple documents/iframes
+// do not share the same "last focus related target" reference.
+interface _DocFocusState {
+    lastFocusRelatedTarget: HTMLElement | null;
+}
 
-function _ensureGlobalFocusTracker(doc: Document): void {
-    if (_globalFocusTrackerInitialized) {
-        return;
+const _docFocusTrackers = new WeakMap<Document, _DocFocusState>();
+
+function _ensureGlobalFocusTracker(doc: Document): _DocFocusState {
+    let state = _docFocusTrackers.get(doc);
+    if (!state) {
+        state = { lastFocusRelatedTarget: null };
+        _docFocusTrackers.set(doc, state);
+        doc.addEventListener(
+            "focusin",
+            (e) => {
+                const related = (e as FocusEvent)
+                    .relatedTarget as HTMLElement | null;
+                if (related) {
+                    state!.lastFocusRelatedTarget = related;
+                }
+            },
+            true
+        );
     }
-
-    doc.addEventListener(
-        "focusin",
-        (e) => {
-            const related = (e as FocusEvent)
-                .relatedTarget as HTMLElement | null;
-            if (related) {
-                _lastFocusRelatedTarget = related;
-            }
-        },
-        true
-    );
-
-    _globalFocusTrackerInitialized = true;
+    return state;
 }
 
 /** Creates modal focus-management behavior for a container using lite semantics. */
@@ -123,6 +128,9 @@ export function createModalizer(
     element: HTMLElement,
     options?: ModalizerOptions
 ): ModalizerInstance {
+    const _doc = element.ownerDocument;
+    const _docFocusState = _ensureGlobalFocusTracker(_doc);
+
     const id = options?.id;
     const useDialog = options?.useDialog ?? false;
     const closeOnEscape = options?.closeOnEscape ?? true;
@@ -364,23 +372,23 @@ export function createModalizer(
         // (e.g. Popover/Menu restore focus behavior).
         if (isOthersAccessible && !isNonModalDialogLike) {
             if (
-                _lastFocusRelatedTarget &&
-                _lastFocusRelatedTarget.isConnected &&
-                _hasTabsterKey(_lastFocusRelatedTarget, "restorer")
+                _docFocusState.lastFocusRelatedTarget &&
+                _docFocusState.lastFocusRelatedTarget.isConnected &&
+                _hasTabsterKey(_docFocusState.lastFocusRelatedTarget, "restorer")
             ) {
-                return _lastFocusRelatedTarget;
+                return _docFocusState.lastFocusRelatedTarget;
             }
 
             return null;
         }
 
         if (
-            _lastFocusRelatedTarget &&
-            !_lastFocusRelatedTarget.contains(element) &&
-            !element.contains(_lastFocusRelatedTarget) &&
-            _lastFocusRelatedTarget.isConnected
+            _docFocusState.lastFocusRelatedTarget &&
+            !_docFocusState.lastFocusRelatedTarget.contains(element) &&
+            !element.contains(_docFocusState.lastFocusRelatedTarget) &&
+            _docFocusState.lastFocusRelatedTarget.isConnected
         ) {
-            return _lastFocusRelatedTarget;
+            return _docFocusState.lastFocusRelatedTarget;
         }
 
         if (
@@ -411,7 +419,8 @@ export function createModalizer(
             _restoreTarget =
                 restoreTarget !== undefined
                     ? restoreTarget
-                    : (element.ownerDocument.activeElement as HTMLElement | null);
+                    : (element.ownerDocument
+                          .activeElement as HTMLElement | null);
         }
         _active = true;
         _ensureMoverDummies();
@@ -446,7 +455,8 @@ export function createModalizer(
                     }
                     const first = focusables[0];
                     const last = focusables[focusables.length - 1];
-                    const active = element.ownerDocument.activeElement as HTMLElement | null;
+                    const active = element.ownerDocument
+                        .activeElement as HTMLElement | null;
                     if (e.shiftKey) {
                         if (active === first || !element.contains(active)) {
                             e.preventDefault();
@@ -459,7 +469,11 @@ export function createModalizer(
                         }
                     }
                 };
-                element.ownerDocument.addEventListener("keydown", _tabTrapListener, true);
+                element.ownerDocument.addEventListener(
+                    "keydown",
+                    _tabTrapListener,
+                    true
+                );
             }
 
             _ensureTabOutSentinel();
@@ -515,7 +529,11 @@ export function createModalizer(
             }
 
             if (_tabTrapListener) {
-                element.ownerDocument.removeEventListener("keydown", _tabTrapListener, true);
+                element.ownerDocument.removeEventListener(
+                    "keydown",
+                    _tabTrapListener,
+                    true
+                );
                 _tabTrapListener = null;
             }
 
@@ -607,8 +625,6 @@ export function createModalizer(
         _activatingFromFocusIn = false;
     }
 
-    const _doc = element.ownerDocument;
-    _ensureGlobalFocusTracker(_doc);
     _doc.addEventListener("focusin", _onFocusInAutoActivate, true);
 
     // If focus has already entered this modalizer before the instance was mounted
@@ -620,8 +636,8 @@ export function createModalizer(
     let currentlyFocused: HTMLElement | null =
         _doc.activeElement as HTMLElement | null;
     while (currentlyFocused?.shadowRoot?.activeElement) {
-        currentlyFocused =
-            currentlyFocused.shadowRoot.activeElement as HTMLElement | null;
+        currentlyFocused = currentlyFocused.shadowRoot
+            .activeElement as HTMLElement | null;
     }
     if (currentlyFocused && element.contains(currentlyFocused)) {
         _restoreTarget = _resolveRestoreTarget(null, currentlyFocused);

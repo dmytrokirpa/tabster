@@ -313,6 +313,7 @@ export function createGroupper(
                     if (toFocus) {
                         e.preventDefault();
                         e.stopPropagation();
+                        _setInnerTabbable(false);
                         toFocus.focus();
                     }
 
@@ -326,10 +327,10 @@ export function createGroupper(
                 // In LimitedTrapFocus, the trap only applies after the group
                 // has been explicitly entered (_active=true, e.g. via Enter
                 // key or GroupperMoveFocusEvent). When _active is false
-                // (e.g. imperative .focus() landed on a descendant), let
-                // the browser default Tab order handle it — with sibling
-                // descendants at tabindex=-1, Tab will exit the group.
+                // (e.g. imperative .focus() landed on a descendant), ensure
+                // that descendants have tabindex=-1 so Tab can exit the group.
                 if (_isTrapFocus() && !_active) {
+                    _setInnerTabbable(false);
                     return;
                 }
 

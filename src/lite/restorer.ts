@@ -41,86 +41,108 @@ export interface RestorerInstance {
     dispose(): void;
 }
 
-// ---- Module-level history stack ----
+// ---- Per-document history state ----
+// All mutable state is scoped to the owning Document so that multiple
+// documents / iframes do not share history or pointer-active flags.
 
 interface TargetEntry {
     ref: WeakRef<HTMLElement>;
     id: string | undefined;
 }
 
-const _MAX_HISTORY = 10;
-const _targetHistory: TargetEntry[] = [];
-let _lastInteractedTarget: TargetEntry | null = null;
+interface _DocState {
+    targetHistory: TargetEntry[];
+    lastInteractedTarget: TargetEntry | null;
+    pointerActive: boolean;
+}
 
-function _pushTarget(el: HTMLElement, id: string | undefined): void {
-    const existing = _targetHistory.findIndex(
+const _MAX_HISTORY = 10;
+const _docState = new WeakMap<Document, _DocState>();
+
+function _getDocState(doc: Document): _DocState {
+    let state = _docState.get(doc);
+    if (!state) {
+        state = {
+            targetHistory: [],
+            lastInteractedTarget: null,
+            pointerActive: false,
+        };
+        _docState.set(doc, state);
+        doc.addEventListener("pointerdown", () => {
+            state!.pointerActive = true;
+        });
+        doc.addEventListener("pointerup", () => {
+            Promise.resolve().then(() => {
+                state!.pointerActive = false;
+            });
+        });
+    }
+    return state;
+}
+
+function _pushTarget(
+    doc: Document,
+    el: HTMLElement,
+    id: string | undefined
+): void {
+    const state = _getDocState(doc);
+    const existing = state.targetHistory.findIndex(
         (entry) => entry.ref.deref() === el
     );
     if (existing !== -1) {
-        _targetHistory.splice(existing, 1);
+        state.targetHistory.splice(existing, 1);
     }
-
-    _targetHistory.push({ ref: new _WeakRef(el), id });
-
-    if (_targetHistory.length > _MAX_HISTORY) {
-        _targetHistory.shift();
+    state.targetHistory.push({ ref: new _WeakRef(el), id });
+    if (state.targetHistory.length > _MAX_HISTORY) {
+        state.targetHistory.shift();
     }
 }
 
-function _popTarget(id: string | undefined): HTMLElement | null {
-    for (let i = _targetHistory.length - 1; i >= 0; i--) {
-        const entry = _targetHistory[i];
+function _popTarget(
+    doc: Document,
+    id: string | undefined
+): HTMLElement | null {
+    const { targetHistory } = _getDocState(doc);
+    for (let i = targetHistory.length - 1; i >= 0; i--) {
+        const entry = targetHistory[i];
         if (entry.id === id) {
             const el = entry.ref.deref();
-            _targetHistory.splice(i, 1);
+            targetHistory.splice(i, 1);
             if (el) {
                 return el;
             }
         }
     }
-
     return null;
 }
 
 function _rememberInteractedTarget(
+    doc: Document,
     el: HTMLElement,
     id: string | undefined
 ): void {
-    _lastInteractedTarget = { ref: new _WeakRef(el), id };
+    _getDocState(doc).lastInteractedTarget = { ref: new _WeakRef(el), id };
 }
 
 export function rememberRestorerTargetInteraction(
     el: HTMLElement,
     id: string | undefined
 ): void {
-    _rememberInteractedTarget(el, id);
+    _rememberInteractedTarget(el.ownerDocument, el, id);
 }
 
-function _takeInteractedTarget(id: string | undefined): HTMLElement | null {
-    const entry = _lastInteractedTarget;
-
+function _takeInteractedTarget(
+    doc: Document,
+    id: string | undefined
+): HTMLElement | null {
+    const state = _getDocState(doc);
+    const entry = state.lastInteractedTarget;
     if (!entry || entry.id !== id) {
         return null;
     }
-
     const el = entry.ref.deref() ?? null;
-    _lastInteractedTarget = null;
-
+    state.lastInteractedTarget = null;
     return el;
-}
-
-// Track whether a pointer click is happening so we skip focus restoration.
-let _pointerActive = false;
-
-if (typeof document !== "undefined") {
-    document.addEventListener("pointerdown", () => {
-        _pointerActive = true;
-    });
-    document.addEventListener("pointerup", () => {
-        Promise.resolve().then(() => {
-            _pointerActive = false;
-        });
-    });
 }
 
 // Returns the deepest focused element, drilling into open shadow roots.
@@ -141,14 +163,17 @@ function _getDeepActiveElement(doc: Document): HTMLElement | null {
     return el as HTMLElement | null;
 }
 
-function _restoreTargetFocus(id: string | undefined): void {
+function _restoreTargetFocus(
+    doc: Document,
+    id: string | undefined
+): void {
     setTimeout(() => {
-        if (_pointerActive) {
+        if (_getDocState(doc).pointerActive) {
             return;
         }
 
-        const active = _getDeepActiveElement(document);
-        const interactedTarget = _takeInteractedTarget(id);
+        const active = _getDeepActiveElement(doc);
+        const interactedTarget = _takeInteractedTarget(doc, id);
 
         if (interactedTarget?.isConnected && active !== interactedTarget) {
             interactedTarget.focus();
@@ -157,15 +182,15 @@ function _restoreTargetFocus(id: string | undefined): void {
 
         const isFocusLost =
             !active ||
-            active === document.body ||
-            active === document.documentElement ||
+            active === doc.body ||
+            active === doc.documentElement ||
             !active.isConnected;
 
         if (!isFocusLost) {
             return;
         }
 
-        _popTarget(id)?.focus();
+        _popTarget(doc, id)?.focus();
     }, 0);
 }
 
@@ -176,20 +201,21 @@ export function createRestorer(
 ): RestorerInstance {
     const type = options.type;
     const id = options.id;
+    const doc = element.ownerDocument;
 
     let _disposed = false;
-    let _hasFocus = element.contains(document.activeElement);
+    let _hasFocus = element.contains(doc.activeElement);
 
     if (type === RestorerTypes.Target) {
         function _onFocusIn(): void {
             if (!_disposed) {
-                _pushTarget(element, id);
+                _pushTarget(doc, element, id);
             }
         }
 
         function _onPointerDown(): void {
             if (!_disposed) {
-                _rememberInteractedTarget(element, id);
+                _rememberInteractedTarget(doc, element, id);
             }
         }
 
@@ -229,12 +255,12 @@ export function createRestorer(
             _hasFocus = false;
         }
 
-        if (_pointerActive) {
+        if (_getDocState(doc).pointerActive) {
             return;
         }
 
         if (!related) {
-            _restoreTargetFocus(id);
+            _restoreTargetFocus(doc, id);
         }
     }
 
@@ -247,7 +273,7 @@ export function createRestorer(
         element.removeEventListener("focusout", _onFocusOut);
 
         if (_hasFocus) {
-            _restoreTargetFocus(id);
+            _restoreTargetFocus(doc, id);
         }
     }
 

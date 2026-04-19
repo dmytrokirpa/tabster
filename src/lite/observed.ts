@@ -64,8 +64,12 @@ function _ensureMO(): void {
     if (_mo) {
         return;
     }
+    const target = document.body || document.documentElement;
+    if (!target) {
+        return;
+    }
     _mo = new MutationObserver(_onMutation);
-    _mo.observe(document.body, {
+    _mo.observe(target, {
         childList: true,
         subtree: true,
         attributes: true,
@@ -95,10 +99,7 @@ function _queryShadowPiercing(
     for (const el of all) {
         const elShadow = (el as HTMLElement).shadowRoot;
         if (elShadow) {
-            const found = _queryShadowPiercing(
-                elShadow,
-                selector
-            );
+            const found = _queryShadowPiercing(elShadow, selector);
             if (found) {
                 return found;
             }
@@ -114,6 +115,9 @@ export function findObservedElement(
 ): HTMLElement | null {
     const attr = options?.attributeName ?? DEFAULT_ATTRIBUTE;
     const names = Array.isArray(name) ? name : [name];
+    if (names.length === 0) {
+        return null;
+    }
     // ~= matches space-separated tokens, so it works for both single and multi-name attributes
     const selector = names
         .map((n) => `[${attr}~="${CSS.escape(n)}"]`)

@@ -47,6 +47,11 @@ type AnyInstance =
     | ModalizerInstance
     | RestorerInstance;
 
+interface _InstanceEntry {
+    instance: AnyInstance;
+    optsJson: string;
+}
+
 const TABSTER_ATTR = "data-tabster";
 
 function _parseJSON(value: string): Record<string, unknown> {
@@ -115,12 +120,12 @@ export function createLiteObserver(
         "restorer",
     ];
 
-    // element → { module → instance }
-    const _instances = new WeakMap<HTMLElement, Map<ModuleKey, AnyInstance>>();
+    // element → { module → { instance, optsJson } }
+    const _instances = new WeakMap<HTMLElement, Map<ModuleKey, _InstanceEntry>>();
     // Track shadow roots already observed to avoid duplicate observe() calls.
     const _observedShadowRoots = new WeakSet<ShadowRoot>();
 
-    function _getOrCreateMap(el: HTMLElement): Map<ModuleKey, AnyInstance> {
+    function _getOrCreateMap(el: HTMLElement): Map<ModuleKey, _InstanceEntry> {
         let map = _instances.get(el);
         if (!map) {
             map = new Map();
@@ -156,7 +161,10 @@ export function createLiteObserver(
                             : baseOpts;
                     const instance = _createInstance(mod, el, opts);
                     if (instance) {
-                        map.set(mod, instance);
+                        map.set(mod, {
+                            instance,
+                            optsJson: JSON.stringify(opts),
+                        });
                     }
                 }
             }
@@ -168,9 +176,9 @@ export function createLiteObserver(
         if (!map) {
             return;
         }
-        const instance = map.get(mod);
-        if (instance) {
-            instance.dispose();
+        const entry = map.get(mod);
+        if (entry) {
+            entry.instance.dispose();
             map.delete(mod);
         }
         if (map.size === 0) {
@@ -273,9 +281,6 @@ export function createLiteObserver(
                         if (next === undefined && had) {
                             _unmountModule(el, mod);
                         } else if (next !== undefined) {
-                            // Always remount when attribute mutates — we
-                            // don't track previous opts, so re-create.
-                            _unmountModule(el, mod);
                             const baseOpts = (next ?? {}) as Record<
                                 string,
                                 unknown
@@ -290,9 +295,18 @@ export function createLiteObserver(
                                               focusable.ignoreKeydown,
                                       }
                                     : baseOpts;
+                            const nextJson = JSON.stringify(opts);
+                            const prev = existing?.get(mod);
+                            if (prev && prev.optsJson === nextJson) {
+                                continue;
+                            }
+                            _unmountModule(el, mod);
                             const instance = _createInstance(mod, el, opts);
                             if (instance) {
-                                _getOrCreateMap(el).set(mod, instance);
+                                _getOrCreateMap(el).set(mod, {
+                                    instance,
+                                    optsJson: nextJson,
+                                });
                             }
                         }
                     }
@@ -448,7 +462,7 @@ export function createLiteObserver(
         element: HTMLElement,
         module: ModuleKey
     ): AnyInstance | null {
-        return _instances.get(element)?.get(module) ?? null;
+        return _instances.get(element)?.get(module)?.instance ?? null;
     }
 
     return { dispose, getInstance };

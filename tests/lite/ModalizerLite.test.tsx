@@ -12,7 +12,7 @@ describe("Lite - Modalizer", () => {
         await BroTest.bootstrapTabsterPage({ modalizer: true }, { lite: true });
     });
 
-    it("should set aria-hidden outside active modal", async () => {
+    it("should set inert on elements outside active modal", async () => {
         await new BroTest.BroTest(
             <div {...getTabsterAttribute({ root: {} })}>
                 <button id="outside">Outside</button>

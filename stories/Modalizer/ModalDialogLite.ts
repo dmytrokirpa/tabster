@@ -34,7 +34,8 @@ export const createModalDialogLite = (props: ModalDialogLiteProps) => {
           <button>Focusable item</button>
           <button>Focusable item</button>
         </div>
-      <div class="button-group" />
+        <div class="button-group"></div>
+      </div>
     `;
 
     const openDialog = () => {
@@ -69,7 +70,8 @@ export const createModalDialogLite = (props: ModalDialogLiteProps) => {
     });
 
     const isDialogOpen = () => !dialog.classList.contains("hidden");
-    document.addEventListener("click", (e) => {
+
+    const _onDocClick = (e: MouseEvent) => {
         if (
             isDialogOpen() &&
             e.target &&
@@ -78,13 +80,16 @@ export const createModalDialogLite = (props: ModalDialogLiteProps) => {
         ) {
             closeDialog();
         }
-    });
+    };
 
-    document.addEventListener("keydown", (e) => {
+    const _onDocKeydown = (e: KeyboardEvent) => {
         if (isDialogOpen() && e.key === "Escape") {
             closeDialog();
         }
-    });
+    };
+
+    document.addEventListener("click", _onDocClick);
+    document.addEventListener("keydown", _onDocKeydown);
 
     const wrapper = document.createElement("div");
     wrapper.appendChild(rootBtn);
@@ -104,6 +109,8 @@ export const createModalDialogLite = (props: ModalDialogLiteProps) => {
     const _cleanupMO = new MutationObserver(() => {
         if (!wrapper.isConnected) {
             observer.dispose();
+            document.removeEventListener("click", _onDocClick);
+            document.removeEventListener("keydown", _onDocKeydown);
             _cleanupMO.disconnect();
         }
     });

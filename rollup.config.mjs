@@ -44,6 +44,11 @@ const litePlugins = () => [
         exclude: "node_modules/**",
     }),
     json(),
+    replace({
+        preventAssignment: true,
+        __DEV__: `process.env.NODE_ENV === 'development'`,
+        __VERSION__: JSON.stringify(pkg.version),
+    }),
     commonjs({ extensions }),
     resolve({ extensions, mainFields: ["module", "main"] }),
 ];

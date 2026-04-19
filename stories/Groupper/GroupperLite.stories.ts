@@ -15,7 +15,7 @@ export default {
     argTypes: {
         tabbability: {
             control: "select",
-            options: GroupperTabbabilities,
+            options: Object.values(GroupperTabbabilities),
         },
     },
 } as Meta<{
