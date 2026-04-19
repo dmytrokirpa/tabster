@@ -155,6 +155,7 @@ export function createModalizer(
     // The dummy itself, on focus, redirects to the next document focusable
     // outside the modalizer (or blurs to body if none exists).
     let _tabOutSentinel: HTMLElement | null = null;
+    let _dialogCancelListener: ((e: Event) => void) | null = null;
     let _moverDummies: HTMLElement[] = [];
 
     function _createDummy(doc: Document): HTMLElement {
@@ -417,14 +418,15 @@ export function createModalizer(
         if (useDialog && element instanceof HTMLDialogElement) {
             (element as HTMLDialogElement).showModal();
 
-            if (closeOnEscape) {
-                element.addEventListener("cancel", (e) => {
+            if (closeOnEscape && !_dialogCancelListener) {
+                _dialogCancelListener = (e: Event) => {
                     e.preventDefault();
                     if (options?.onEscape) {
                         options.onEscape(e as unknown as KeyboardEvent);
                     }
                     deactivate();
-                });
+                };
+                element.addEventListener("cancel", _dialogCancelListener);
             }
         } else {
             if (!isOthersAccessible) {
@@ -501,6 +503,10 @@ export function createModalizer(
         element.removeEventListener("keydown", _onKeyDown);
 
         if (useDialog && element instanceof HTMLDialogElement) {
+            if (_dialogCancelListener) {
+                element.removeEventListener("cancel", _dialogCancelListener);
+                _dialogCancelListener = null;
+            }
             (element as HTMLDialogElement).close();
         } else {
             if (!isOthersAccessible) {
@@ -578,7 +584,12 @@ export function createModalizer(
         if (_active) {
             return;
         }
-        const target = e.target as HTMLElement;
+        // Use composedPath()[0] to get the actual focused element inside shadow roots;
+        // document-level event.target is retargeted to the shadow host.
+        const composed = e.composedPath?.();
+        const target = (
+            composed && composed.length > 0 ? composed[0] : e.target
+        ) as HTMLElement;
         // Only react when focus arrives INSIDE the container from OUTSIDE.
         if (!element.contains(target)) {
             return;
@@ -596,13 +607,20 @@ export function createModalizer(
 
     const _doc = element.ownerDocument;
     _ensureGlobalFocusTracker(_doc);
-    _doc.addEventListener("focusin", _onFocusInAutoActivate);
+    _doc.addEventListener("focusin", _onFocusInAutoActivate, true);
 
     // If focus has already entered this modalizer before the instance was mounted
     // (possible due to async observer wiring), activate immediately. This ensures
     // non-modal modalizers (e.g. Popover with isOthersAccessible=true) still set
     // up _restoreTarget so focus is returned to the trigger on close.
-    const currentlyFocused = _doc.activeElement as HTMLElement | null;
+    // Use deep active element to handle shadow DOM: document.activeElement is
+    // retargeted to the shadow host when focus is inside a shadow root.
+    let currentlyFocused: HTMLElement | null =
+        _doc.activeElement as HTMLElement | null;
+    while (currentlyFocused?.shadowRoot?.activeElement) {
+        currentlyFocused =
+            currentlyFocused.shadowRoot.activeElement as HTMLElement | null;
+    }
     if (currentlyFocused && element.contains(currentlyFocused)) {
         _restoreTarget = _resolveRestoreTarget(null, currentlyFocused);
         _activatingFromFocusIn = true;
@@ -614,7 +632,7 @@ export function createModalizer(
         if (_active) {
             deactivate();
         }
-        _doc.removeEventListener("focusin", _onFocusInAutoActivate);
+        _doc.removeEventListener("focusin", _onFocusInAutoActivate, true);
     }
 
     return {

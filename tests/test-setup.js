@@ -106,11 +106,44 @@ const syncObservedAttributes = (root = document.body) => {
         return;
     }
 
-    const observed = root.querySelectorAll("[data-tabster]");
-
-    observed.forEach((el) => {
+    root.querySelectorAll("[data-tabster]").forEach((el) => {
         const names = getObservedNames(el);
 
+        if (names?.length) {
+            el.setAttribute(LITE_OBSERVED_ATTR, names.join(" "));
+        } else {
+            el.removeAttribute(LITE_OBSERVED_ATTR);
+        }
+    });
+
+    // Also observe any open shadow roots present in the subtree.
+    root.querySelectorAll("*").forEach((el) => {
+        if (el.shadowRoot) {
+            observeShadowRootForSync(el.shadowRoot);
+        }
+    });
+};
+
+// Track shadow roots already being observed by observedSyncMO.
+const _syncedShadowRoots = new WeakSet();
+
+const observeShadowRootForSync = (shadowRoot) => {
+    if (_syncedShadowRoots.has(shadowRoot)) {
+        return;
+    }
+    _syncedShadowRoots.add(shadowRoot);
+    observedSyncMO.observe(shadowRoot, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["data-tabster"],
+    });
+    syncObservedAttributesInRoot(shadowRoot);
+};
+
+const syncObservedAttributesInRoot = (shadowRoot) => {
+    shadowRoot.querySelectorAll("[data-tabster]").forEach((el) => {
+        const names = getObservedNames(el);
         if (names?.length) {
             el.setAttribute(LITE_OBSERVED_ATTR, names.join(" "));
         } else {
@@ -137,6 +170,10 @@ const observedSyncMO = new MutationObserver((mutations) => {
             mutation.addedNodes.forEach((node) => {
                 if (node instanceof HTMLElement) {
                     syncObservedAttributes(node);
+                    // If the newly added element has a shadow root, observe it too.
+                    if (node.shadowRoot) {
+                        observeShadowRootForSync(node.shadowRoot);
+                    }
                 }
             });
         }
@@ -161,7 +198,9 @@ const startObservedSync = () => {
     });
 };
 
-startObservedSync();
+if (liteMode) {
+    startObservedSync();
+}
 
 const getAllObservedElements = () => {
     const result = new Map();

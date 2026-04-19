@@ -82,6 +82,30 @@ function _disposeMO(): void {
 
 // ---- Public API ----
 
+// querySelector that also searches inside open shadow roots.
+function _queryShadowPiercing(
+    root: Document | ShadowRoot,
+    selector: string
+): HTMLElement | null {
+    const direct = root.querySelector(selector) as HTMLElement | null;
+    if (direct) {
+        return direct;
+    }
+    const all = root.querySelectorAll("*");
+    for (const el of all) {
+        if ((el as HTMLElement).shadowRoot) {
+            const found = _queryShadowPiercing(
+                (el as HTMLElement).shadowRoot!,
+                selector
+            );
+            if (found) {
+                return found;
+            }
+        }
+    }
+    return null;
+}
+
 /** Finds the first element currently marked with one of the provided observed names. */
 export function findObservedElement(
     name: string | string[],
@@ -93,7 +117,7 @@ export function findObservedElement(
     const selector = names
         .map((n) => `[${attr}~="${CSS.escape(n)}"]`)
         .join(",");
-    return document.querySelector(selector) as HTMLElement | null;
+    return _queryShadowPiercing(document, selector);
 }
 
 /** Adds observed-name markers to an element and returns a disposer to remove them. */

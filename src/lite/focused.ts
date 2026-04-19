@@ -108,7 +108,12 @@ export function createFocusedElementTracker(
             _pendingBlurTimer = null;
         }
 
-        const target = e.target as HTMLElement | null;
+        // Use composedPath()[0] to get the actual focused element inside shadow roots;
+        // document-level event.target is retargeted to the shadow host.
+        const composed = e.composedPath?.();
+        const target = (
+            composed && composed.length > 0 ? composed[0] : e.target
+        ) as HTMLElement | null;
         const relatedTarget = e.relatedTarget as HTMLElement | undefined;
 
         // Read and reset the programmatic flag before notifying so that nested
@@ -132,7 +137,10 @@ export function createFocusedElementTracker(
             return;
         }
 
-        const prev = e.target as HTMLElement;
+        const composed = e.composedPath?.();
+        const prev = (
+            composed && composed.length > 0 ? composed[0] : e.target
+        ) as HTMLElement;
         _pendingBlurTimer = setTimeout(() => {
             _pendingBlurTimer = null;
             _notify(undefined, { relatedTarget: prev });

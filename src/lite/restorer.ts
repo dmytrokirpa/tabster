@@ -110,13 +110,31 @@ if (typeof document !== "undefined") {
     });
 }
 
+// Returns the deepest focused element, drilling into open shadow roots.
+// document.activeElement is retargeted to the shadow host when focus is
+// inside a shadow root; the actual focused element lives deeper.
+function _getDeepActiveElement(doc: Document): HTMLElement | null {
+    let el: Element | null = doc.activeElement;
+    while (el?.shadowRoot) {
+        const shadowActive = el.shadowRoot.activeElement;
+        if (!shadowActive) {
+            // Focus is on the shadow host itself with no shadow-root child focused.
+            // Treat this as focus lost (host received focus because its focused
+            // descendant was removed).
+            return null;
+        }
+        el = shadowActive;
+    }
+    return el as HTMLElement | null;
+}
+
 function _restoreTargetFocus(id: string | undefined): void {
     setTimeout(() => {
         if (_pointerActive) {
             return;
         }
 
-        const active = document.activeElement as HTMLElement | null;
+        const active = _getDeepActiveElement(document);
         const interactedTarget = _takeInteractedTarget(id);
 
         if (interactedTarget?.isConnected && active !== interactedTarget) {

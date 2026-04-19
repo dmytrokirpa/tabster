@@ -117,6 +117,8 @@ export function createLiteObserver(
 
     // element → { module → instance }
     const _instances = new WeakMap<HTMLElement, Map<ModuleKey, AnyInstance>>();
+    // Track shadow roots already observed to avoid duplicate observe() calls.
+    const _observedShadowRoots = new WeakSet<ShadowRoot>();
 
     function _getOrCreateMap(el: HTMLElement): Map<ModuleKey, AnyInstance> {
         let map = _instances.get(el);
@@ -182,28 +184,52 @@ export function createLiteObserver(
         }
     }
 
+    // Walk up the DOM, crossing shadow-root boundaries, to check containment.
+    function _isDescendantOfRoot(node: Node | null): boolean {
+        let cur = node;
+        while (cur) {
+            if (cur === root) {
+                return true;
+            }
+            const parent = (cur as HTMLElement).parentElement;
+            if (parent) {
+                cur = parent;
+            } else {
+                const rootNode = cur.getRootNode();
+                if (rootNode instanceof ShadowRoot) {
+                    cur = rootNode.host;
+                } else {
+                    break;
+                }
+            }
+        }
+        return false;
+    }
+
     function _mountFocusedPath(target: EventTarget | null): void {
         let el = target instanceof HTMLElement ? target : null;
 
-        while (el && root.contains(el)) {
+        while (el && _isDescendantOfRoot(el)) {
             if (el.hasAttribute(TABSTER_ATTR)) {
                 _mountElement(el);
             }
-
-            el = el.parentElement;
+            // Walk up, crossing shadow-root boundaries when needed.
+            const parent = el.parentElement;
+            if (parent) {
+                el = parent;
+            } else {
+                const rootNode = el.getRootNode();
+                el =
+                    rootNode instanceof ShadowRoot
+                        ? (rootNode.host as HTMLElement)
+                        : null;
+            }
         }
     }
 
-    // Initial scan
-    {
-        const els = Array.from(
-            root.querySelectorAll(`[${TABSTER_ATTR}]`)
-        ) as HTMLElement[];
-        for (const el of els) {
-            _mountElement(el);
-        }
-    }
-
+    // _mo is declared before _observeShadowRoot so the latter can call _mo.observe().
+    // The callback references other functions via closure; those need not be defined yet
+    // at MutationObserver construction time (only at callback invocation time).
     const _mo = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
             if (mutation.type === "childList") {
@@ -211,16 +237,7 @@ export function createLiteObserver(
                     if (!(node instanceof HTMLElement)) {
                         continue;
                     }
-                    if (node.hasAttribute(TABSTER_ATTR)) {
-                        _mountElement(node);
-                    }
-                    // Scan subtree
-                    const children = Array.from(
-                        node.querySelectorAll(`[${TABSTER_ATTR}]`)
-                    ) as HTMLElement[];
-                    for (const child of children) {
-                        _mountElement(child);
-                    }
+                    _scanAndObserveNode(node);
                 }
                 for (const node of Array.from(mutation.removedNodes)) {
                     if (!(node instanceof HTMLElement)) {
@@ -286,6 +303,57 @@ export function createLiteObserver(
         }
     });
 
+    // Begin observing a shadow root (if not already observed) and scan its content.
+    function _observeShadowRoot(shadowRoot: ShadowRoot): void {
+        if (_observedShadowRoots.has(shadowRoot)) {
+            return;
+        }
+        _observedShadowRoots.add(shadowRoot);
+        _mo.observe(shadowRoot, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: [TABSTER_ATTR],
+        });
+        // Scan existing data-tabster elements inside the shadow root.
+        const els = Array.from(
+            shadowRoot.querySelectorAll(`[${TABSTER_ATTR}]`)
+        ) as HTMLElement[];
+        for (const el of els) {
+            _mountElement(el);
+        }
+        // Recursively observe any nested shadow roots already present.
+        const all = Array.from(shadowRoot.querySelectorAll("*"));
+        for (const el of all) {
+            if ((el as HTMLElement).shadowRoot) {
+                _observeShadowRoot((el as HTMLElement).shadowRoot!);
+            }
+        }
+    }
+
+    // Scan an element and its subtree, also observing any shadow roots found.
+    function _scanAndObserveNode(node: HTMLElement): void {
+        if (node.hasAttribute(TABSTER_ATTR)) {
+            _mountElement(node);
+        }
+        const children = Array.from(
+            node.querySelectorAll(`[${TABSTER_ATTR}]`)
+        ) as HTMLElement[];
+        for (const child of children) {
+            _mountElement(child);
+        }
+        if (node.shadowRoot) {
+            _observeShadowRoot(node.shadowRoot);
+        }
+        // Also look for shadow hosts nested in the subtree.
+        const shadowHosts = Array.from(node.querySelectorAll("*"));
+        for (const el of shadowHosts) {
+            if ((el as HTMLElement).shadowRoot) {
+                _observeShadowRoot((el as HTMLElement).shadowRoot!);
+            }
+        }
+    }
+
     _mo.observe(root, {
         childList: true,
         subtree: true,
@@ -293,15 +361,36 @@ export function createLiteObserver(
         attributeFilter: [TABSTER_ATTR],
     });
 
+    // Initial scan of existing data-tabster elements and shadow roots.
+    {
+        const els = Array.from(
+            root.querySelectorAll(`[${TABSTER_ATTR}]`)
+        ) as HTMLElement[];
+        for (const el of els) {
+            _mountElement(el);
+        }
+        const shadowHosts = Array.from(root.querySelectorAll("*"));
+        for (const el of shadowHosts) {
+            if ((el as HTMLElement).shadowRoot) {
+                _observeShadowRoot((el as HTMLElement).shadowRoot!);
+            }
+        }
+    }
+
     const _onFocusIn = (event: FocusEvent) => {
-        _mountFocusedPath(event.target);
+        // composedPath()[0] gives the actual focused element inside shadow roots;
+        // document-level event.target is retargeted to the shadow host.
+        const composed = event.composedPath?.();
+        const target =
+            composed && composed.length > 0 ? composed[0] : event.target;
+        _mountFocusedPath(target);
     };
 
     const _rememberRestorerTargetFromEvent = (
         eventTarget: EventTarget | null
     ) => {
         let el = eventTarget instanceof HTMLElement ? eventTarget : null;
-        while (el && root.contains(el)) {
+        while (el && _isDescendantOfRoot(el)) {
             const parsed = _parseTabsterAttr(el);
             const restorer = parsed["restorer"] as
                 | { type?: number; id?: string }
@@ -316,14 +405,23 @@ export function createLiteObserver(
         }
     };
 
+    const _getComposedTarget = (event: Event): HTMLElement | null => {
+        const composed = event.composedPath?.();
+        const target =
+            composed && composed.length > 0 ? composed[0] : event.target;
+        return target instanceof HTMLElement ? target : null;
+    };
+
     const _onPointerDown = (event: PointerEvent) => {
-        _mountFocusedPath(event.target);
-        _rememberRestorerTargetFromEvent(event.target);
+        const target = _getComposedTarget(event);
+        _mountFocusedPath(target);
+        _rememberRestorerTargetFromEvent(target);
     };
 
     const _onMouseDown = (event: MouseEvent) => {
-        _mountFocusedPath(event.target);
-        _rememberRestorerTargetFromEvent(event.target);
+        const target = _getComposedTarget(event);
+        _mountFocusedPath(target);
+        _rememberRestorerTargetFromEvent(target);
     };
 
     ownerDocument.addEventListener("focusin", _onFocusIn);

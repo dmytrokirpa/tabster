@@ -183,7 +183,7 @@ export function getTestPageURL(
     const enableShadowDOM = !!process.env.SHADOWDOM;
     const controlTab = !process.env.STORYBOOK_UNCONTROLLED;
     const rootDummyInputs = !!process.env.STORYBOOK_ROOT_DUMMY_INPUTS;
-    const lite = options?.lite || !!process.env.LITE;
+    const lite = options?.lite ?? !!process.env.LITE;
     return `http://localhost:${port}/?shadowdom=${enableShadowDOM}&controlTab=${controlTab}&rootDummyInputs=${rootDummyInputs}${
         parts
             ? `&parts=${Object.keys(parts)

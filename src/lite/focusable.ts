@@ -57,7 +57,7 @@ export function isVisible(element: HTMLElement): boolean {
         return false;
     }
 
-    const rect = element.ownerDocument.body.getBoundingClientRect();
+    const rect = element.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) {
         return false;
     }
