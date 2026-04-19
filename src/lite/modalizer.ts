@@ -263,14 +263,15 @@ export function createModalizer(
     }
 
     function _applyInert(): void {
+        const _doc = element.ownerDocument;
         // Walk ancestor chain from element up to document.body
         const path = new Set<HTMLElement>();
         let cur: HTMLElement | null = element;
-        while (cur && cur !== document.body) {
+        while (cur && cur !== _doc.body) {
             path.add(cur);
             cur = cur.parentElement;
         }
-        path.add(document.body);
+        path.add(_doc.body);
 
         // For each node in path (including element), set inert on siblings NOT in path
         for (const ancestor of path) {
@@ -410,7 +411,7 @@ export function createModalizer(
             _restoreTarget =
                 restoreTarget !== undefined
                     ? restoreTarget
-                    : (document.activeElement as HTMLElement | null);
+                    : (element.ownerDocument.activeElement as HTMLElement | null);
         }
         _active = true;
         _ensureMoverDummies();
@@ -445,7 +446,7 @@ export function createModalizer(
                     }
                     const first = focusables[0];
                     const last = focusables[focusables.length - 1];
-                    const active = document.activeElement as HTMLElement | null;
+                    const active = element.ownerDocument.activeElement as HTMLElement | null;
                     if (e.shiftKey) {
                         if (active === first || !element.contains(active)) {
                             e.preventDefault();
@@ -458,7 +459,7 @@ export function createModalizer(
                         }
                     }
                 };
-                document.addEventListener("keydown", _tabTrapListener, true);
+                element.ownerDocument.addEventListener("keydown", _tabTrapListener, true);
             }
 
             _ensureTabOutSentinel();
@@ -514,7 +515,7 @@ export function createModalizer(
             }
 
             if (_tabTrapListener) {
-                document.removeEventListener("keydown", _tabTrapListener, true);
+                element.ownerDocument.removeEventListener("keydown", _tabTrapListener, true);
                 _tabTrapListener = null;
             }
 
@@ -552,11 +553,12 @@ export function createModalizer(
                 : rf
             : _restoreTarget;
 
-        const active = document.activeElement as HTMLElement | null;
+        const _doc = element.ownerDocument;
+        const active = _doc.activeElement as HTMLElement | null;
         const userMovedFocusOutside =
             active !== null &&
-            active !== document.body &&
-            active !== document.documentElement &&
+            active !== _doc.body &&
+            active !== _doc.documentElement &&
             !element.contains(active);
 
         if (!userMovedFocusOutside && restoreTo && restoreTo.isConnected) {

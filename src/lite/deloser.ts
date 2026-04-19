@@ -7,6 +7,19 @@ import type { DOMAPI } from "../Types";
 import { DeloserFocusRestoredEventName } from "../Events";
 import { findFirst } from "./focusable";
 
+const _WeakRef: WeakRefConstructor =
+    typeof WeakRef !== "undefined"
+        ? WeakRef
+        : (class<T extends object> {
+              private _t: T;
+              constructor(t: T) {
+                  this._t = t;
+              }
+              deref(): T {
+                  return this._t;
+              }
+          } as unknown as WeakRefConstructor);
+
 /** Configuration used to create a lite deloser instance. */
 export interface DeloserOptions {
     /** Maximum number of recently focused descendants kept in restore history. */
@@ -54,7 +67,7 @@ export function createDeloser(
     let _lastFocused: HTMLElement | null = null;
 
     function _push(el: HTMLElement): void {
-        _history[_head] = new WeakRef(el);
+        _history[_head] = new _WeakRef(el);
         _head = (_head + 1) % historyDepth;
         if (_size < historyDepth) {
             _size++;

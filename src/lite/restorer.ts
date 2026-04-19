@@ -8,6 +8,19 @@ import { RestorerTypes } from "../Consts";
 export { RestorerTypes } from "../Consts";
 export type { RestorerType } from "../Types";
 
+const _WeakRef: WeakRefConstructor =
+    typeof WeakRef !== "undefined"
+        ? WeakRef
+        : (class<T extends object> {
+              private _t: T;
+              constructor(t: T) {
+                  this._t = t;
+              }
+              deref(): T {
+                  return this._t;
+              }
+          } as unknown as WeakRefConstructor);
+
 /** Configuration used to create a lite restorer instance. */
 export interface RestorerOptions {
     /** Restorer role for the element (`Source` or `Target`). */
@@ -47,7 +60,7 @@ function _pushTarget(el: HTMLElement, id: string | undefined): void {
         _targetHistory.splice(existing, 1);
     }
 
-    _targetHistory.push({ ref: new WeakRef(el), id });
+    _targetHistory.push({ ref: new _WeakRef(el), id });
 
     if (_targetHistory.length > _MAX_HISTORY) {
         _targetHistory.shift();
@@ -73,7 +86,7 @@ function _rememberInteractedTarget(
     el: HTMLElement,
     id: string | undefined
 ): void {
-    _lastInteractedTarget = { ref: new WeakRef(el), id };
+    _lastInteractedTarget = { ref: new _WeakRef(el), id };
 }
 
 export function rememberRestorerTargetInteraction(

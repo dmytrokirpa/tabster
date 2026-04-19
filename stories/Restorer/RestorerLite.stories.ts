@@ -60,9 +60,13 @@ export const RestorerBasicExample: StoryFn = () => {
 
     example.append(target);
 
-    example.addEventListener("DOMNodeRemoved", () => {
-        observer.dispose();
+    const _cleanupMO = new MutationObserver(() => {
+        if (!example.isConnected) {
+            observer.dispose();
+            _cleanupMO.disconnect();
+        }
     });
+    _cleanupMO.observe(document.body, { childList: true, subtree: true });
 
     return example;
 };
@@ -118,9 +122,13 @@ export const UseTargetHistory: StoryFn = () => {
     example.append(secondTarget);
     example.append(target);
 
-    example.addEventListener("DOMNodeRemoved", () => {
-        observer.dispose();
+    const _cleanupMO = new MutationObserver(() => {
+        if (!example.isConnected) {
+            observer.dispose();
+            _cleanupMO.disconnect();
+        }
     });
+    _cleanupMO.observe(document.body, { childList: true, subtree: true });
 
     return example;
 };

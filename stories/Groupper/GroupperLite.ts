@@ -40,9 +40,13 @@ export const createFocusableContainerLite = (
     <button>Focusable button</button>
   `;
 
-    wrapper.addEventListener("DOMNodeRemoved", () => {
-        observer.dispose();
+    const _cleanupMO = new MutationObserver(() => {
+        if (!wrapper.isConnected) {
+            observer.dispose();
+            _cleanupMO.disconnect();
+        }
     });
+    _cleanupMO.observe(document.body, { childList: true, subtree: true });
 
     return wrapper;
 };

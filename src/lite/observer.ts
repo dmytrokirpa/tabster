@@ -325,8 +325,9 @@ export function createLiteObserver(
         // Recursively observe any nested shadow roots already present.
         const all = Array.from(shadowRoot.querySelectorAll("*"));
         for (const el of all) {
-            if ((el as HTMLElement).shadowRoot) {
-                _observeShadowRoot((el as HTMLElement).shadowRoot!);
+            const elShadow = (el as HTMLElement).shadowRoot;
+            if (elShadow) {
+                _observeShadowRoot(elShadow);
             }
         }
     }
@@ -348,8 +349,9 @@ export function createLiteObserver(
         // Also look for shadow hosts nested in the subtree.
         const shadowHosts = Array.from(node.querySelectorAll("*"));
         for (const el of shadowHosts) {
-            if ((el as HTMLElement).shadowRoot) {
-                _observeShadowRoot((el as HTMLElement).shadowRoot!);
+            const elShadow = (el as HTMLElement).shadowRoot;
+            if (elShadow) {
+                _observeShadowRoot(elShadow);
             }
         }
     }
@@ -371,8 +373,9 @@ export function createLiteObserver(
         }
         const shadowHosts = Array.from(root.querySelectorAll("*"));
         for (const el of shadowHosts) {
-            if ((el as HTMLElement).shadowRoot) {
-                _observeShadowRoot((el as HTMLElement).shadowRoot!);
+            const elShadow = (el as HTMLElement).shadowRoot;
+            if (elShadow) {
+                _observeShadowRoot(elShadow);
             }
         }
     }

@@ -51,9 +51,13 @@ export const createBasicMoverLite = (props: MoverLiteProps) => {
 
     wrapper.setAttribute(TABSTER_ATTRIBUTE_NAME, attr);
 
-    wrapper.addEventListener("DOMNodeRemoved", () => {
-        observer.dispose();
+    const _cleanupMO = new MutationObserver(() => {
+        if (!wrapper.isConnected) {
+            observer.dispose();
+            _cleanupMO.disconnect();
+        }
     });
+    _cleanupMO.observe(document.body, { childList: true, subtree: true });
 
     return wrapper;
 };
@@ -119,9 +123,13 @@ export const createTableMoverLite = (props: MoverLiteProps) => {
     table.innerHTML = html;
     table.setAttribute(TABSTER_ATTRIBUTE_NAME, attr);
 
-    table.addEventListener("DOMNodeRemoved", () => {
-        observer.dispose();
+    const _cleanupMO = new MutationObserver(() => {
+        if (!table.isConnected) {
+            observer.dispose();
+            _cleanupMO.disconnect();
+        }
     });
+    _cleanupMO.observe(document.body, { childList: true, subtree: true });
 
     return table;
 };

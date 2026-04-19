@@ -93,9 +93,10 @@ function _queryShadowPiercing(
     }
     const all = root.querySelectorAll("*");
     for (const el of all) {
-        if ((el as HTMLElement).shadowRoot) {
+        const elShadow = (el as HTMLElement).shadowRoot;
+        if (elShadow) {
             const found = _queryShadowPiercing(
-                (el as HTMLElement).shadowRoot!,
+                elShadow,
                 selector
             );
             if (found) {

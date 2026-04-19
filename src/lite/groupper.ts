@@ -444,20 +444,17 @@ export function createGroupper(
             _active = cameFromInside;
         } else if (element.contains(target)) {
             if (_isLimited()) {
-                _insideGroup = true;
+                const delegate = delegated
+                    ? _findDelegate(element, options?.delegateFocus)
+                    : null;
+                const onDelegate = !!delegate && target === delegate;
 
-                if (!(_isTrapFocus() && !_active)) {
-                    if (delegated) {
-                        const delegate = _findDelegate(
-                            element,
-                            options?.delegateFocus
-                        );
-                        if (target !== delegate) {
-                            _active = true;
-                        }
-                    } else {
-                        _active = true;
-                    }
+                if (!onDelegate) {
+                    _insideGroup = true;
+                }
+
+                if (!(_isTrapFocus() && !_active) && !onDelegate) {
+                    _active = true;
                 }
             }
         }

@@ -51,6 +51,13 @@ function _patchFocus(win: Window & typeof globalThis): void {
         proto.focus = function (this: HTMLElement, options?: FocusOptions) {
             patch.isProgrammatic = true;
             original.call(this, options);
+            // Reset in a microtask so that if focusin never fires (e.g. focus()
+            // called on a non-focusable element), the flag does not persist.
+            // When focusin does fire synchronously, _onFocusIn resets it first
+            // and the microtask becomes a harmless no-op.
+            Promise.resolve().then(() => {
+                patch.isProgrammatic = false;
+            });
         };
     }
     p.refCount++;

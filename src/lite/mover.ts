@@ -599,7 +599,7 @@ export function createMover(
 
     // ---- Visibility tracking ----
 
-    if (visibilityAware) {
+    if (visibilityAware && typeof IntersectionObserver !== "undefined") {
         _io = new IntersectionObserver(
             (entries) => {
                 for (const entry of entries) {
@@ -827,7 +827,7 @@ export function createMover(
 
         // Tab navigation within the group
         if (isTab) {
-            const items = findAll({ container: element });
+            const items = findAll({ container: element, includeProgrammaticallyFocusable: true });
             const currentIdx = items.indexOf(target);
             if (currentIdx === -1) {
                 return;
