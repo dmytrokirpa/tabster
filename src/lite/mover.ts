@@ -547,7 +547,8 @@ export function createMover(
     }
 
     function _syncTabbableItem(preferred?: HTMLElement | null): void {
-        if (!tabbable) {
+        // When native focusgroup is active the browser owns Tab navigation.
+        if (_usingFocusgroup) {
             return;
         }
 
