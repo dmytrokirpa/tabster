@@ -1329,6 +1329,14 @@ interface TabsterCoreInternal {
     /** @internal */
     _noop: boolean;
 
+    /**
+     * @internal
+     * Hook called by MutationEvent after every DOM mutation batch.
+     * Modalizer registers this when initialised via getModalizer() so
+     * MutationEvent.ts does not need to import Modalizer directly.
+     */
+    _onMutationEnd?: () => void;
+
     /** @internal */
     storageEntry(
         element: HTMLElement,

@@ -21,9 +21,31 @@ import {
     setTabsterAttribute,
     getDummyInputContainer,
 } from "../src";
+import {
+    createLiteObserver,
+    disposeObservedModule,
+    findAll,
+    findDefault,
+    findFirst,
+    findLast,
+    findNext,
+    findPrev,
+    getTabsterAttribute as getLiteTabsterAttribute,
+    isAccessible,
+    isFocusable,
+    isVisible,
+    requestFocusObservedElement,
+    setTabsterAttribute as setLiteTabsterAttribute,
+    mergeTabsterProps as mergeLiteTabsterProps,
+} from "../src/lite";
+import { createFocusedElementTracker } from "../src/lite/focused";
 import * as Events from "../src/Events";
 import * as shadowDOM from "../src/Shadowdomize";
 import { dom } from "../src/DOMAPI";
+import {
+    ObservedElementFailureReasons,
+    ObservedElementRequestStatuses,
+} from "../src/Consts";
 
 const tabsterTest = {};
 
@@ -31,30 +53,272 @@ const params = new URL(location.href).searchParams;
 const enableShadowDOM = params.get("shadowdom") !== "false";
 const controlTab = params.get("controlTab") !== "false";
 const rootDummyInputs = params.get("rootDummyInputs") !== "false";
+const liteMode = params.get("lite") === "true";
 const partsValue = params.get("parts");
 const parts =
     typeof partsValue === "string" ? partsValue.split(",") : undefined;
 const partsToEnable = {};
 
+let liteObserver;
+
+const liteCore = {
+    focusable: {
+        findAll,
+        findDefault,
+        findFirst,
+        findLast,
+        findNext,
+        findPrev,
+        isAccessible,
+        isFocusable,
+        isVisible,
+    },
+    core: {
+        storageEntry: () => undefined,
+    },
+};
+
+const LITE_OBSERVED_ATTR = "data-tabster-lite-observed";
+
+const getObservedNames = (el) => {
+    const tabsterAttr = el.getAttribute("data-tabster");
+
+    if (!tabsterAttr) {
+        return undefined;
+    }
+
+    try {
+        const parsed = JSON.parse(tabsterAttr);
+        const names = parsed?.observed?.names;
+
+        if (Array.isArray(names) && names.length) {
+            return names.map((name) => `${name}`.trim()).filter(Boolean);
+        }
+    } catch {
+        // ignore malformed attributes in test harness.
+    }
+
+    return undefined;
+};
+
+const syncObservedAttributes = (root = document.body) => {
+    if (!root) {
+        return;
+    }
+
+    root.querySelectorAll("[data-tabster]").forEach((el) => {
+        const names = getObservedNames(el);
+
+        if (names?.length) {
+            el.setAttribute(LITE_OBSERVED_ATTR, names.join(" "));
+        } else {
+            el.removeAttribute(LITE_OBSERVED_ATTR);
+        }
+    });
+
+    // Also observe any open shadow roots present in the subtree.
+    root.querySelectorAll("*").forEach((el) => {
+        if (el.shadowRoot) {
+            observeShadowRootForSync(el.shadowRoot);
+        }
+    });
+};
+
+// Track shadow roots already being observed by observedSyncMO.
+const _syncedShadowRoots = new WeakSet();
+
+const observeShadowRootForSync = (shadowRoot) => {
+    if (_syncedShadowRoots.has(shadowRoot)) {
+        return;
+    }
+    _syncedShadowRoots.add(shadowRoot);
+    observedSyncMO.observe(shadowRoot, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["data-tabster"],
+    });
+    syncObservedAttributesInRoot(shadowRoot);
+};
+
+const syncObservedAttributesInRoot = (shadowRoot) => {
+    shadowRoot.querySelectorAll("[data-tabster]").forEach((el) => {
+        const names = getObservedNames(el);
+        if (names?.length) {
+            el.setAttribute(LITE_OBSERVED_ATTR, names.join(" "));
+        } else {
+            el.removeAttribute(LITE_OBSERVED_ATTR);
+        }
+    });
+};
+
+const observedSyncMO = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+        if (mutation.type === "attributes") {
+            const target = mutation.target;
+
+            if (target instanceof HTMLElement) {
+                const names = getObservedNames(target);
+
+                if (names?.length) {
+                    target.setAttribute(LITE_OBSERVED_ATTR, names.join(" "));
+                } else {
+                    target.removeAttribute(LITE_OBSERVED_ATTR);
+                }
+            }
+        } else if (mutation.type === "childList") {
+            mutation.addedNodes.forEach((node) => {
+                if (node instanceof HTMLElement) {
+                    syncObservedAttributes(node);
+                    // If the newly added element has a shadow root, observe it too.
+                    if (node.shadowRoot) {
+                        observeShadowRootForSync(node.shadowRoot);
+                    }
+                }
+            });
+        }
+    }
+});
+
+const startObservedSync = () => {
+    const body = document.body;
+
+    if (!body) {
+        window.addEventListener("DOMContentLoaded", startObservedSync, {
+            once: true,
+        });
+        return;
+    }
+
+    observedSyncMO.observe(body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["data-tabster"],
+    });
+};
+
+if (liteMode) {
+    startObservedSync();
+}
+
+const getAllObservedElements = () => {
+    const result = new Map();
+    const observed = document.querySelectorAll(`[${LITE_OBSERVED_ATTR}]`);
+
+    observed.forEach((el) => {
+        const raw = el.getAttribute(LITE_OBSERVED_ATTR) || "";
+        const names = raw.split(/\s+/).filter(Boolean);
+
+        names.forEach((name) => {
+            if (!result.has(name)) {
+                result.set(name, []);
+            }
+
+            result.get(name).push({
+                element: el,
+                names,
+            });
+        });
+    });
+
+    return result;
+};
+
+const requestFocusObserved = (name, timeout) => {
+    const diagnostics = {};
+    const start = Date.now();
+    let status = ObservedElementRequestStatuses.Waiting;
+    const request = requestFocusObservedElement(name, { timeout });
+
+    const result = request.result.then((el) => {
+        diagnostics.waitForElementDuration = Date.now() - start;
+
+        if (el) {
+            status = ObservedElementRequestStatuses.Succeeded;
+            return true;
+        }
+
+        status = ObservedElementRequestStatuses.TimedOut;
+        diagnostics.reason =
+            ObservedElementFailureReasons.TimeoutElementNotInDOM;
+        diagnostics.targetState = {
+            inDOM: false,
+        };
+
+        return false;
+    });
+
+    return {
+        get status() {
+            return status;
+        },
+        diagnostics,
+        cancel: () => {
+            request.cancel();
+            status = ObservedElementRequestStatuses.Canceled;
+            diagnostics.waitForElementDuration = Date.now() - start;
+        },
+        result,
+    };
+};
+
+const getLiteObservedAdapter = () => ({
+    requestFocus: requestFocusObserved,
+    getAllObservedElements,
+});
+
 tabsterTest.createTabster = (win, props) => {
+    if (liteMode) {
+        syncObservedAttributes();
+
+        if (liteObserver) {
+            liteObserver.dispose();
+        }
+
+        liteObserver = createLiteObserver();
+        tabsterTest.core = liteCore;
+
+        return liteCore;
+    }
+
     const newProps = props || {};
     newProps.DOMAPI = enableShadowDOM ? shadowDOM : undefined;
     return createTabster(win, newProps);
 };
-tabsterTest.disposeTabster = disposeTabster;
+tabsterTest.disposeTabster = (tabster, allInstances) => {
+    if (liteMode) {
+        liteObserver?.dispose();
+        liteObserver = undefined;
+        disposeObservedModule();
+        return;
+    }
+
+    return disposeTabster(tabster, allInstances);
+};
 tabsterTest.getTabster = getTabster;
 tabsterTest.getCrossOrigin = getCrossOrigin;
 tabsterTest.getDeloser = getDeloser;
 tabsterTest.getGroupper = getGroupper;
 tabsterTest.getModalizer = getModalizer;
 tabsterTest.getMover = getMover;
-tabsterTest.getObservedElement = getObservedElement;
+tabsterTest.getObservedElement = liteMode
+    ? getLiteObservedAdapter
+    : getObservedElement;
 tabsterTest.getOutline = getOutline;
 tabsterTest.makeNoOp = makeNoOp;
-tabsterTest.getTabsterAttribute = getTabsterAttribute;
-tabsterTest.setTabsterAttribute = setTabsterAttribute;
-tabsterTest.mergeTabsterProps = mergeTabsterProps;
+tabsterTest.getTabsterAttribute = liteMode
+    ? getLiteTabsterAttribute
+    : getTabsterAttribute;
+tabsterTest.setTabsterAttribute = liteMode
+    ? setLiteTabsterAttribute
+    : setTabsterAttribute;
+tabsterTest.mergeTabsterProps = liteMode
+    ? mergeLiteTabsterProps
+    : mergeTabsterProps;
 tabsterTest.getDummyInputContainer = getDummyInputContainer;
+tabsterTest.createLiteObserver = createLiteObserver;
+tabsterTest.createFocusedElementTracker = createFocusedElementTracker;
 tabsterTest.dom = dom;
 tabsterTest.shadowDOM = shadowDOM;
 tabsterTest.Events = Events;
@@ -64,59 +328,80 @@ if (parts !== undefined) {
         partsToEnable[part] = true;
     }
 
-    const tabster = tabsterTest.createTabster(window, {
-        controlTab,
-        rootDummyInputs,
-    });
+    if (liteMode) {
+        const modules = [
+            "groupper",
+            "mover",
+            "deloser",
+            "modalizer",
+            "restorer",
+        ].filter((moduleName) => partsToEnable[moduleName]);
 
-    tabsterTest.core = tabster;
+        syncObservedAttributes();
 
-    console.log(
-        "created tabster",
-        `as ${
-            controlTab ? "controlled" : "uncontrolled"
-        }, root dummy inputs ${rootDummyInputs}`
-    );
+        liteObserver = createLiteObserver({ modules });
+        tabsterTest.core = liteCore;
 
-    if ("modalizer" in partsToEnable) {
-        tabsterTest.modalizer = getModalizer(tabster);
-        console.log("created modalizer");
-    }
+        if ("observed" in partsToEnable) {
+            tabsterTest.observedElement = getLiteObservedAdapter();
+        }
 
-    if ("deloser" in partsToEnable) {
-        tabsterTest.deloser = getDeloser(tabster);
-        console.log("created deloser");
-    }
+        console.log("created tabster/lite observer", modules);
+    } else {
+        const tabster = tabsterTest.createTabster(window, {
+            controlTab,
+            rootDummyInputs,
+        });
 
-    if ("outline" in partsToEnable) {
-        tabsterTest.outline = getOutline(tabster);
-        console.log("created outline");
-    }
+        tabsterTest.core = tabster;
 
-    if ("mover" in partsToEnable) {
-        tabsterTest.mover = getMover(tabster);
-        console.log("created mover");
-    }
+        console.log(
+            "created tabster",
+            `as ${
+                controlTab ? "controlled" : "uncontrolled"
+            }, root dummy inputs ${rootDummyInputs}`
+        );
 
-    if ("groupper" in partsToEnable) {
-        tabsterTest.groupper = getGroupper(tabster);
-        console.log("created groupper");
-    }
+        if ("modalizer" in partsToEnable) {
+            tabsterTest.modalizer = getModalizer(tabster);
+            console.log("created modalizer");
+        }
 
-    if ("observed" in partsToEnable) {
-        tabsterTest.observedElement = getObservedElement(tabster);
-        console.log("created observed");
-    }
+        if ("deloser" in partsToEnable) {
+            tabsterTest.deloser = getDeloser(tabster);
+            console.log("created deloser");
+        }
 
-    if ("restorer" in partsToEnable) {
-        tabsterTest.crossOrigin = getRestorer(tabster);
-        console.log("created restorer");
-    }
+        if ("outline" in partsToEnable) {
+            tabsterTest.outline = getOutline(tabster);
+            console.log("created outline");
+        }
 
-    if ("crossOrigin" in partsToEnable) {
-        tabsterTest.crossOrigin = getCrossOrigin(tabster);
-        tabsterTest.crossOrigin.setup();
-        console.log("created cross origin");
+        if ("mover" in partsToEnable) {
+            tabsterTest.mover = getMover(tabster);
+            console.log("created mover");
+        }
+
+        if ("groupper" in partsToEnable) {
+            tabsterTest.groupper = getGroupper(tabster);
+            console.log("created groupper");
+        }
+
+        if ("observed" in partsToEnable) {
+            tabsterTest.observedElement = getObservedElement(tabster);
+            console.log("created observed");
+        }
+
+        if ("restorer" in partsToEnable) {
+            tabsterTest.restorer = getRestorer(tabster);
+            console.log("created restorer");
+        }
+
+        if ("crossOrigin" in partsToEnable) {
+            tabsterTest.crossOrigin = getCrossOrigin(tabster);
+            tabsterTest.crossOrigin.setup();
+            console.log("created cross origin");
+        }
     }
 }
 

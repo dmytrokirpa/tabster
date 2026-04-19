@@ -76,7 +76,7 @@ export function observeMutations(
 
         removedNodes.clear();
 
-        tabster.modalizer?.hiddenUpdate();
+        tabster._onMutationEnd?.();
     };
 
     function updateTabsterElements(node: Node, removed?: boolean): void {
