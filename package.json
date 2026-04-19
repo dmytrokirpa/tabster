@@ -26,6 +26,16 @@
             "types": "./dist/lite/*.d.ts",
             "import": "./dist/lite/*.esm.js",
             "require": "./dist/lite/*.js"
+        },
+        "./features/*": {
+            "types": "./dist/features/*.d.ts",
+            "import": "./dist/features/*.esm.js",
+            "require": "./dist/features/*.js"
+        },
+        "./core": {
+            "types": "./dist/core/createContext.d.ts",
+            "import": "./dist/core/createContext.esm.js",
+            "require": "./dist/core/createContext.js"
         }
     },
     "typesVersions": {
@@ -35,6 +45,12 @@
             ],
             "lite/*": [
                 "./dist/lite/*.d.ts"
+            ],
+            "features/*": [
+                "./dist/features/*.d.ts"
+            ],
+            "core": [
+                "./dist/core/createContext.d.ts"
             ]
         }
     },
