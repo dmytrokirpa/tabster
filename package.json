@@ -15,6 +15,7 @@
             "import": "./dist/esm/index.js",
             "require": "./dist/cjs/index.cjs"
         },
+        "./dist/*": "./dist/*",
         "./package.json": "./package.json"
     },
     "files": [
